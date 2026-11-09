@@ -639,3 +639,22 @@ hr { border-color: var(--border); opacity: 1; }
 .update-banner .btn-ink { background: #fff; color: #25252D; }
 .update-banner .icon-btn { color: #fff; width: 28px; height: 28px; }
 @media (min-width: 992px) { .update-banner { bottom: 24px; } }
+
+/* Rincian asal nilai */
+.rincian { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); margin-bottom: 8px; }
+.rincian > summary { list-style: none; cursor: pointer; padding: 10px 14px; border-radius: 16px; }
+.rincian > summary::-webkit-details-marker { display: none; }
+.rincian > summary:hover { background: var(--surface-2); }
+.rincian > summary .score-bar { margin-top: 6px; }
+.rin-chev { transition: transform .15s; color: var(--text-3); }
+.rincian[open] .rin-chev { transform: rotate(180deg); }
+.rincian-body { padding: 4px 14px 14px; }
+.rin-note { background: var(--warn-soft); color: var(--warn); border-radius: 12px; padding: 8px 12px; font-size: .84rem; margin-bottom: 10px; }
+.rin-src { border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; margin-bottom: 6px; background: var(--bg); }
+.rin-src.rin-off { opacity: .72; border-style: dashed; }
+.rin-ico { width: 28px; height: 28px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; flex: 0 0 28px; font-size: .9rem; }
+.rin-sub { margin-top: 8px; } .rin-sub > summary { cursor: pointer; font-size: .8rem; color: var(--accent-strong); font-weight: 600; }
+.rin-calc { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); color: var(--text-2); }
+.rin-final { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.name-link { background: none; border: 0; padding: 0; font-weight: 600; text-align: left; color: inherit; cursor: pointer; }
+.name-link:hover { color: var(--accent-strong); text-decoration: underline; }

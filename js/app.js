@@ -121,7 +121,7 @@ async function api(action, payload = {}, opts = {}) {
 // Halaman langsung tampil dari data terakhir; data terbaru diambil diam-diam.
 // ════════════════════════════════════════════════════════
 
-const READ_ONLY_ACTIONS = /^(app\.config|auth\.me|notif\.(list|read)|file\.get|att\.(qr|scan|recap)|report\.|dash\.|exam\.(state|answer|event|next)|live\.(state|active|list|report)|award\.(defaults|candidates|get|list|mine))|\.(list|listClass|detail|members|get|mine|overview|meeting|active|summary|codes|dosen|dosenKelas|storage|suggest|open|progress|ping)$/;
+const READ_ONLY_ACTIONS = /^(app\.config|auth\.me|notif\.(list|read)|file\.get|att\.(qr|scan|recap)|report\.|dash\.|exam\.(state|answer|event|next)|live\.(state|active|list|report)|award\.(defaults|candidates|get|list|mine))|\.(list|listClass|detail|members|get|mine|overview|meeting|active|summary|rincian|codes|dosen|dosenKelas|storage|suggest|open|progress|ping)$/;
 
 const SWR = {
   mem: {}, owner: null,
@@ -3256,7 +3256,7 @@ function drawNilai(body, d, g) {
         <th>Nilai akhir</th><th>Huruf</th></tr></thead><tbody>
       ${g.rows.map((r, i) => `<tr>
         <td>${i + 1}</td>
-        <td class="l sticky-col"><div class="fw-600">${esc(r.nama)}</div><div class="small-ss text-secondary-ss">${esc(r.npm)}</div></td>
+        <td class="l sticky-col"><button class="name-link" onclick="openRincianMahasiswa('${r.user_id}')" title="Lihat asal nilai ${esc(r.nama)}">${esc(r.nama)}</button><div class="small-ss text-secondary-ss">${esc(r.npm)}</div></td>
         ${g.weights.map(w => `<td>${cell(r, w)}</td>`).join('')}
         <td class="final tabular">${fmtScore(r.akhir)}</td>
         <td>${badge(r.huruf, hurufCls(r.huruf))}${r.lengkap ? '' : ' <i class="bi bi-exclamation-circle text-muted-ss" title="Ada komponen yang belum ada nilainya"></i>'}</td></tr>`).join('')}
@@ -3479,11 +3479,7 @@ async function renderNilaiSayaTab(body, d) {
   await swr('grade.mine', { class_id: d.cls.class_id }, list => {
     const g = list[0];
     if (!g) { body.innerHTML = emptyState('Belum ada data nilai', ''); return; }
-    const att = g.kehadiran;
-    body.innerHTML = `<div class="row g-3"><div class="col-lg-6">${gradeCardHtml(g, null)}
-      <div class="ss-card mt-3"><div class="card-head"><h2>Kehadiranku</h2><button class="btn btn-ghost btn-sm" onclick="switchClassTab('absensi-saya')">Lihat per pertemuan</button></div>
-        <div class="d-flex flex-wrap gap-2">${['hadir', 'terlambat', 'izin', 'sakit', 'alpa'].map(k => badge(ATT_LABEL[k] + ' ' + att[k], attBadgeCls(k))).join('')}</div>
-        <p class="small-ss text-secondary-ss mt-2 mb-0">Nilai kehadiran: hadir 100, terlambat ${g.poin_terlambat}; izin dan sakit tidak dihitung. Skor saat ini: <b>${fmtScore(g.skor_kehadiran)}</b>.</p></div></div>
+    body.innerHTML = `<div class="row g-3"><div class="col-lg-6">${rincianCardHtml(g)}</div>
       <div class="col-lg-6"><div class="ss-card"><div class="card-head"><h2>Nilai tugas</h2></div>
         ${g.tugas && g.tugas.length ? g.tugas.map(t => `<div class="item-row clickable" role="button" tabindex="0" onclick="navigateTo('tugas-detail',{assignment_id:'${t.assignment_id}'})" onkeydown="if(event.key==='Enter')this.click()">
           <div class="item-icon ii-task"><i class="bi bi-clipboard-check"></i></div>
@@ -5112,6 +5108,82 @@ async function processSignature(file, removeBg) {
     }
     return cv.toDataURL('image/png').split(',')[1];
   } finally { URL.revokeObjectURL(img.src); }
+}
+
+
+// ════════════════════════════════════════════════════════
+// BAGIAN 34: RINCIAN ASAL NILAI (bisa ditelusuri per komponen)
+// Tiap komponen bisa dibuka: kehadiran per pertemuan, tiap tugas, tiap sesi kelas, dan koreksi dosen.
+// ════════════════════════════════════════════════════════
+
+function rincianToggle(key, open) { (AppState.rincianOpen = AppState.rincianOpen || {})[key] = open; }
+function rinScoreBadge(v) { return badge(fmtScore(v), v >= 70 ? 'b-ok' : v >= 50 ? 'b-warn' : 'b-bad'); }
+
+function rincianSumberHtml(s, student) {
+  const ico = { kehadiran: 'bi-calendar-check', tugas: 'bi-clipboard-check', sesi: 'bi-broadcast' }[s.jenis] || 'bi-dot';
+  const nav = student && s.jenis === 'tugas' && s.assignment_id ? ` role="button" tabindex="0" onclick="navigateTo('tugas-detail',{assignment_id:'${s.assignment_id}'})" onkeydown="if(event.key==='Enter')this.click()"` : '';
+  let sub = '';
+  if (s.jenis === 'kehadiran' && s.pertemuan && s.pertemuan.length) {
+    sub = `<details class="rin-sub"><summary>Lihat per pertemuan (${s.pertemuan.length})</summary>
+      <div class="table-wrap"><table class="table-ss"><thead><tr><th>Pertemuan</th><th>Status</th><th class="text-end">Poin</th></tr></thead><tbody>
+      ${s.pertemuan.map(p => `<tr><td>${esc(p.judul)}${p.tanggal ? `<div class="small-ss text-muted-ss">${esc(fmtDate(p.tanggal))}</div>` : ''}${p.catatan ? `<div class="small-ss text-secondary-ss">Keterangan: ${esc(p.catatan)}</div>` : ''}</td>
+        <td>${badge(ATT_LABEL[p.status] || p.status, attBadgeCls(p.status))}</td><td class="text-end tabular">${p.poin === null ? '<span class="small-ss text-muted-ss">tidak dihitung</span>' : p.poin}</td></tr>`).join('')}</tbody></table></div></details>`;
+  }
+  return `<div class="rin-src ${s.dihitung ? '' : 'rin-off'}"><div class="d-flex align-items-start gap-2"${nav}>
+      <div class="rin-ico"><i class="bi ${ico}"></i></div>
+      <div class="flex-grow-1 min-w-0"><div class="fw-600 small-ss">${esc(s.judul)}</div><div class="small-ss text-secondary-ss">${esc(s.ket || '')}</div></div>
+      <div class="flex-shrink-0">${s.dihitung ? rinScoreBadge(s.nilai) : badge('Belum dihitung', 'b-muted')}</div></div>${sub}</div>`;
+}
+
+function rincianKompHtml(w, c, student) {
+  const v = c.nilai, has = v !== null && v !== undefined, key = 'k_' + w.komponen;
+  const open = (AppState.rincianOpen || {})[key] ? ' open' : '';
+  let body = '';
+  if (c.koreksi !== null) body += `<div class="rin-note"><i class="bi bi-pencil-square"></i> Nilai ini <b>disesuaikan dosen</b> menjadi <b>${fmtScore(c.koreksi)}</b>${c.otomatis !== null ? ` (hitungan otomatis dari sumber di bawah: ${fmtScore(c.otomatis)})` : ''}.</div>`;
+  if (c.sumber.length) {
+    body += `<div class="small-ss text-secondary-ss mb-2">${c.koreksi !== null ? 'Sumber hitungan otomatis:' : `Rata-rata dari <b>${c.n_dihitung}</b> sumber yang sudah dihitung:`}</div>` + c.sumber.map(s => rincianSumberHtml(s, student)).join('');
+  } else if (c.koreksi === null) {
+    body += `<p class="small-ss text-muted-ss mb-2">${c.jenis === 'manual' ? 'Belum ada nilai. Komponen ini diisi oleh dosen.' : 'Belum ada tugas atau kegiatan yang dinilai untuk komponen ini.'}</p>`;
+  }
+  body += `<div class="rin-calc small-ss">Sumbangan ke nilai akhir: <b>${fmtScore(has ? v : 0)} × ${w.bobot_persen}% = ${fmtScore(c.kontribusi)} poin</b>${has ? '' : ' <span class="text-muted-ss">(belum ada nilai → dihitung 0 sementara)</span>'}</div>`;
+  return `<details class="rincian"${open} ontoggle="rincianToggle('${esc(key)}', this.open)">
+    <summary><div class="d-flex justify-content-between align-items-center small-ss"><span><b>${esc(w.label)}</b> <span class="text-muted-ss">(bobot ${w.bobot_persen}%)</span>${c.koreksi !== null ? ' <i class="bi bi-pencil-square text-muted-ss" title="Disesuaikan dosen"></i>' : ''}</span>
+      <span class="d-flex align-items-center gap-2"><b>${has ? fmtScore(v) : '–'}</b><i class="bi bi-chevron-down rin-chev" aria-hidden="true"></i></span></div>
+      <div class="score-bar" aria-hidden="true"><span style="width:${has ? Math.min(100, v) : 0}%"></span></div></summary>
+    <div class="rincian-body">${body}</div></details>`;
+}
+
+function rincianFinalHtml(g) {
+  const r = g.rincian || {}, sem = g.akhir_sementara !== undefined ? g.akhir_sementara : g.akhir;
+  return `<div class="rin-final"><div class="fw-600 small-ss mb-2">Perhitungan nilai akhir</div>
+    <div class="table-wrap"><table class="table-ss"><thead><tr><th>Komponen</th><th class="text-end">Nilai</th><th class="text-end">Bobot</th><th class="text-end">Poin</th></tr></thead><tbody>
+    ${g.weights.map(w => { const c = r[w.komponen]; return `<tr><td>${esc(w.label)}</td><td class="text-end tabular">${c && c.nilai !== null ? fmtScore(c.nilai) : '–'}</td><td class="text-end tabular">${w.bobot_persen}%</td><td class="text-end tabular">${c ? fmtScore(c.kontribusi) : '–'}</td></tr>`; }).join('')}
+    <tr class="fw-bold"><td colspan="3">${g.lengkap ? 'Nilai akhir' : 'Nilai akhir sementara'}</td><td class="text-end tabular">${fmtScore(sem)}${g.lengkap && g.huruf ? ' · ' + esc(g.huruf) : ''}</td></tr></tbody></table></div>
+    ${g.lengkap ? '' : `<p class="small-ss text-secondary-ss mt-2 mb-0">Angka ini <b>sementara</b>: komponen yang belum ada nilainya dihitung 0. Nilai akhir resmi muncul setelah semua komponen lengkap.</p>`}</div>`;
+}
+
+/** Kartu "Nilai saya" untuk satu kelas, tiap komponen bisa dibuka untuk melihat asal nilainya. */
+function rincianCardHtml(g) {
+  if (!g.rincian) return gradeCardHtml(g, null);                                 // server lama: tampilan ringkas
+  return `<div class="ss-card">
+    <div class="d-flex align-items-start gap-3 mb-3">
+      <div class="sched-thumb" style="width:52px;height:52px">${coverSVG(g.class_id, g.warna)}</div>
+      <div class="flex-grow-1 min-w-0"><div class="fw-bold text-truncate">${esc(g.nama_kelas)}</div><div class="small-ss text-secondary-ss text-truncate">${esc(g.mata_kuliah)}</div></div>
+      <div class="text-end">${g.akhir !== null ? `<div class="kpi-value" style="margin:0;font-size:1.7rem">${fmtScore(g.akhir)}</div>${badge(g.huruf, hurufCls(g.huruf))}` : badge('Belum final', 'b-muted')}</div></div>
+    <div class="small-ss text-secondary-ss mb-2"><i class="bi bi-hand-index"></i> Ketuk tiap komponen untuk melihat nilai itu berasal dari mana.</div>
+    ${g.weights.map(w => g.rincian[w.komponen] ? rincianKompHtml(w, g.rincian[w.komponen], true) : '').join('')}
+    ${rincianFinalHtml(g)}</div>`;
+}
+
+/** Dosen: rincian asal nilai satu mahasiswa. */
+async function openRincianMahasiswa(userId) {
+  const body = openModal({ title: 'Rincian nilai', body: loadingBlock(), size: 'modal-lg' });
+  try {
+    const g = await api('grade.rincian', { class_id: AppState.params.class_id, user_id: userId });
+    $('#appModalTitle').textContent = 'Rincian nilai — ' + g.nama;
+    body.innerHTML = `<div class="small-ss text-secondary-ss mb-3">NPM ${esc(g.npm)} · Ketuk tiap komponen untuk melihat asal nilainya. Koreksi nilai dilakukan di tabel Nilai.</div>
+      ${g.weights.map(w => g.rincian[w.komponen] ? rincianKompHtml(w, g.rincian[w.komponen], false) : '').join('')}${rincianFinalHtml(g)}`;
+  } catch (e) { body.innerHTML = errorBlock(e, `openRincianMahasiswa('${userId}')`); }
 }
 
 // ════════════════════════════════════════════════════════

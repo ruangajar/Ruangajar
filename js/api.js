@@ -16,7 +16,7 @@ const MAX_BATCH_SIZE = 12;         // harus ≤ MAX_BATCH di server (16)
 const MAX_BATCH_BYTES = 200000;    // permintaan besar (unggahan berkas) tidak digabung
 
 /** Hanya aksi BACA yang digabung/dideduplikasi. Aksi tulis & waktu-nyata (ujian, sesi live) selalu dikirim sendiri-sendiri. */
-const BATCHABLE = /^(app\.config|auth\.me|notif\.list|dash\.(dosen|mahasiswa)|class\.(list|detail|members)|meeting\.list|assignment\.(listClass|get|mine)|grading\.list|group\.list|att\.(overview|mine|recap)|grade\.(summary|mine)|ann\.list|lecturer\.list|live\.(list|active)|award\.(mine|list|defaults))$/;
+const BATCHABLE = /^(app\.config|auth\.me|notif\.list|dash\.(dosen|mahasiswa)|class\.(list|detail|members)|meeting\.list|assignment\.(listClass|get|mine)|grading\.list|group\.list|att\.(overview|mine|recap)|grade\.(summary|mine|rincian)|ann\.list|lecturer\.list|live\.(list|active)|award\.(mine|list|defaults))$/;
 
 let _batchOK = true;               // false bila server lama belum mengenal 'batch' → kirim satu-satu
 let _qHigh = [], _qLow = [], _tHigh = null, _tLow = null, _active = 0;
