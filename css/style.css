@@ -656,5 +656,5 @@ hr { border-color: var(--border); opacity: 1; }
 .rin-sub { margin-top: 8px; } .rin-sub > summary { cursor: pointer; font-size: .8rem; color: var(--accent-strong); font-weight: 600; }
 .rin-calc { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); color: var(--text-2); }
 .rin-final { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.name-link { background: none; border: 0; padding: 0; font-weight: 600; text-align: left; color: inherit; cursor: pointer; }
+.name-link { background: none; border: 0; padding: 0; font-weight: 600; text-align: left; color: inherit; cursor: pointer; text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; }
 .name-link:hover { color: var(--accent-strong); text-decoration: underline; }

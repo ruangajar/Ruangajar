@@ -315,9 +315,15 @@ function toast(title, message, type = 'info') {
 const toastErr = e => toast('Gagal', e && e.message ? e.message : String(e), 'danger');
 
 let _modal = null;
+let _modalHiding = false, _modalBound = false;      // true selama animasi menutup (dialog + latar) belum benar-benar selesai
 /** Buka modal umum. size: '', 'modal-lg', 'modal-xl'. Mengembalikan elemen body. */
 function openModal({ title, body, footer = '', size = '', onShown = null, static: isStatic = false }) {
   const el = document.getElementById('appModal');
+  if (!_modalBound) {                                   // lacak "sedang menutup" dari semua cara menutup (tombol, ESC, klik latar, closeModal)
+    _modalBound = true;
+    el.addEventListener('hide.bs.modal', () => { _modalHiding = true; });
+    el.addEventListener('hidden.bs.modal', () => { _modalHiding = false; });
+  }
   const alreadyOpen = _modal && el.classList.contains('show');
   el.querySelector('.modal-dialog').className = `modal-dialog modal-dialog-centered modal-dialog-scrollable ${size}`;
   document.getElementById('appModalTitle').textContent = title;
@@ -335,11 +341,11 @@ function openModal({ title, body, footer = '', size = '', onShown = null, static
     _modal.show();
   };
   // Dialog sebelumnya masih dalam animasi menutup → tunggu selesai dulu (isi sudah terpasang), agar tidak terjadi balapan
-  if (_modal && !el.classList.contains('show') && el.style.display === 'block') {
+  if (_modal && (_modalHiding || (!el.classList.contains('show') && el.style.display === 'block'))) {
     let started = false;
     const go = () => { if (started) return; started = true; el.removeEventListener('hidden.bs.modal', go); start(); };
     el.addEventListener('hidden.bs.modal', go);
-    setTimeout(go, 700);
+    setTimeout(go, 1000);
   } else start();
   return document.getElementById('appModalBody');
 }
@@ -3241,7 +3247,7 @@ function drawNilai(body, d, g) {
       <div class="card-head flex-wrap"><h2>Komponen & bobot nilai</h2>
         ${d.access.isOwner ? `<button class="btn btn-ghost btn-sm" onclick="switchClassTab('pengaturan')"><i class="bi bi-sliders"></i> Ubah komponen & bobot</button>` : ''}</div>
       <div class="weight-chips">${g.weights.map(x => `<span class="weight-chip">${esc(x.label)} <b>${x.bobot_persen}%</b> <span class="text-muted-ss">(${esc(JENIS_LABEL[x.jenis] || x.jenis)}${g.jumlah_tugas[x.komponen] ? ', ' + g.jumlah_tugas[x.komponen] + ' tugas' : ''})</span></span>`).join('')}</div>
-      <p class="small-ss text-secondary-ss mt-3 mb-0">Kolom komponen terisi <b>otomatis</b>: Kehadiran dari absensi (hadir 100, terlambat ${g.poin_terlambat}, izin/sakit tidak dihitung), komponen lain dari rata-rata nilai tugas yang dialokasikan (tugas lewat tenggat tanpa pengiriman = 0). Bila terjadi kesalahan atau perlu penyesuaian, <b>ketik nilai di kolom</b> mahasiswa itu: nilainya menimpa hitungan otomatis (kolom diberi warna). Kosongkan kolom untuk kembali otomatis. Angka abu-abu di kolom kosong adalah hitungan otomatisnya.</p>
+      <p class="small-ss text-secondary-ss mt-3 mb-0">Kolom komponen terisi <b>otomatis</b>: Kehadiran dari absensi (hadir 100, terlambat ${g.poin_terlambat}, izin/sakit tidak dihitung), komponen lain dari rata-rata nilai tugas yang dialokasikan (tugas lewat tenggat tanpa pengiriman = 0). Bila terjadi kesalahan atau perlu penyesuaian, <b>ketik nilai di kolom</b> mahasiswa itu: nilainya menimpa hitungan otomatis (kolom diberi warna). Kosongkan kolom untuk kembali otomatis. Angka abu-abu di kolom kosong adalah hitungan otomatisnya. Klik <b>Rincian</b> (atau nama mahasiswa) untuk melihat nilai itu berasal dari mana: kehadiran per pertemuan, tiap tugas, sesi kelas, dan koreksi — sama seperti yang dilihat mahasiswa, sehingga Anda bisa menjawab bila ditanya.</p>
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
       ${can ? `<button class="btn btn-ink btn-sm" id="saveExams" disabled><i class="bi bi-save"></i> Simpan perubahan nilai</button>
@@ -3256,13 +3262,14 @@ function drawNilai(body, d, g) {
     ${g.rows.length ? `<div class="table-wrap"><table class="table-ss grade-table"><thead><tr>
         <th>No</th><th class="l sticky-col">Mahasiswa</th>
         ${g.weights.map(w => `<th>${esc(w.label)}<br><span class="text-muted-ss">${w.bobot_persen}%</span></th>`).join('')}
-        <th>Nilai akhir</th><th>Huruf</th></tr></thead><tbody>
+        <th>Nilai akhir</th><th>Huruf</th><th>Rincian</th></tr></thead><tbody>
       ${g.rows.map((r, i) => `<tr>
         <td>${i + 1}</td>
         <td class="l sticky-col"><button class="name-link" onclick="openRincianMahasiswa('${r.user_id}')" title="Lihat asal nilai ${esc(r.nama)}">${esc(r.nama)}</button><div class="small-ss text-secondary-ss">${esc(r.npm)}</div></td>
         ${g.weights.map(w => `<td>${cell(r, w)}</td>`).join('')}
         <td class="final tabular">${fmtScore(r.akhir)}</td>
-        <td>${badge(r.huruf, hurufCls(r.huruf))}${r.lengkap ? '' : ' <i class="bi bi-exclamation-circle text-muted-ss" title="Ada komponen yang belum ada nilainya"></i>'}</td></tr>`).join('')}
+        <td>${badge(r.huruf, hurufCls(r.huruf))}${r.lengkap ? '' : ' <i class="bi bi-exclamation-circle text-muted-ss" title="Ada komponen yang belum ada nilainya"></i>'}</td>
+        <td><button class="btn btn-soft btn-sm" onclick="openRincianMahasiswa('${r.user_id}')" aria-label="Lihat asal nilai ${esc(r.nama)}"><i class="bi bi-list-check"></i> Rincian</button></td></tr>`).join('')}
       </tbody></table></div>` : emptyState('Belum ada mahasiswa', 'Nilai muncul setelah mahasiswa bergabung ke kelas.')}`;
   if (!can) return;
   $$('.exam-input', body).forEach(inp => {
@@ -5159,9 +5166,9 @@ function rincianSumberHtml(s, student) {
       <div class="flex-shrink-0">${s.dihitung ? rinScoreBadge(s.nilai) : badge('Belum dihitung', 'b-muted')}</div></div>${sub}</div>`;
 }
 
-function rincianKompHtml(w, c, student) {
+function rincianKompHtml(w, c, student, forceOpen) {
   const v = c.nilai, has = v !== null && v !== undefined, key = 'k_' + w.komponen;
-  const open = (AppState.rincianOpen || {})[key] ? ' open' : '';
+  const open = (forceOpen || (AppState.rincianOpen || {})[key]) ? ' open' : '';
   let body = '';
   if (c.koreksi !== null) body += `<div class="rin-note"><i class="bi bi-pencil-square"></i> Nilai ini <b>disesuaikan dosen</b> menjadi <b>${fmtScore(c.koreksi)}</b>${c.otomatis !== null ? ` (hitungan otomatis dari sumber di bawah: ${fmtScore(c.otomatis)})` : ''}.</div>`;
   if (c.sumber.length) {
@@ -5205,8 +5212,13 @@ async function openRincianMahasiswa(userId) {
   try {
     const g = await api('grade.rincian', { class_id: AppState.params.class_id, user_id: userId });
     $('#appModalTitle').textContent = 'Rincian nilai — ' + g.nama;
-    body.innerHTML = `<div class="small-ss text-secondary-ss mb-3">NPM ${esc(g.npm)} · Ketuk tiap komponen untuk melihat asal nilainya. Koreksi nilai dilakukan di tabel Nilai.</div>
-      ${g.weights.map(w => g.rincian[w.komponen] ? rincianKompHtml(w, g.rincian[w.komponen], false) : '').join('')}${rincianFinalHtml(g)}`;
+    const sem = g.akhir_sementara !== undefined ? g.akhir_sementara : g.akhir;
+    body.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <span class="small-ss text-secondary-ss">NPM ${esc(g.npm)}</span>${badge((g.lengkap ? 'Nilai akhir ' : 'Sementara ') + fmtScore(sem) + (g.lengkap && g.huruf ? ' · ' + g.huruf : ''), g.lengkap ? hurufCls(g.huruf) : 'b-muted')}
+        <span class="ms-auto d-flex gap-2"><button class="btn btn-soft btn-sm" onclick="$$('#appModalBody details.rincian').forEach(d => d.open = true)">Buka semua</button>
+          <button class="btn btn-ghost btn-sm" onclick="$$('#appModalBody details.rincian').forEach(d => d.open = false)">Tutup semua</button></span></div>
+      ${g.weights.map(w => g.rincian[w.komponen] ? rincianKompHtml(w, g.rincian[w.komponen], false, true) : '').join('')}${rincianFinalHtml(g)}
+      <p class="small-ss text-secondary-ss mt-3 mb-0"><i class="bi bi-pencil-square"></i> Untuk mengoreksi nilai, ketik angkanya di kolom komponen pada tabel Nilai.</p>`;
   } catch (e) { body.innerHTML = errorBlock(e, `openRincianMahasiswa('${userId}')`); }
 }
 
