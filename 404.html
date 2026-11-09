@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Halaman tidak ditemukan — Ruang Ajar</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #F4F4F6; color: #1F1F2B; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+    .box { max-width: 420px; background: #fff; border-radius: 20px; padding: 32px; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+    h1 { font-size: 1.3rem; margin: 12px 0 6px; } p { color: #6E6E7A; margin: 0 0 20px; }
+    a { display: inline-block; background: #25252D; color: #fff; text-decoration: none; padding: 10px 22px; border-radius: 999px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div style="font-size:42px">🎓</div>
+    <h1>Halaman tidak ditemukan</h1>
+    <p>Alamat yang Anda buka tidak ada. Ruang Ajar hanya memiliki satu halaman utama.</p>
+    <a id="home" href="/">Ke Ruang Ajar</a>
+  </div>
+  <script>
+    // Situs proyek GitHub Pages berada di /nama-repo/ ; domain sendiri berada di /
+    (function () {
+      var seg = location.pathname.split('/')[1];
+      if (location.hostname.slice(-10) === '.github.io' && seg) document.getElementById('home').href = '/' + seg + '/';
+    })();
+  </script>
+</body>
+</html>
