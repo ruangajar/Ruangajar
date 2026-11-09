@@ -121,7 +121,7 @@ async function api(action, payload = {}, opts = {}) {
 // Halaman langsung tampil dari data terakhir; data terbaru diambil diam-diam.
 // ════════════════════════════════════════════════════════
 
-const READ_ONLY_ACTIONS = /^(app\.config|auth\.me|notif\.(list|read)|file\.get|att\.(qr|scan)|report\.|dash\.|exam\.(state|answer|event|next)|live\.(state|active|list|report)|award\.(defaults|candidates|get|list|mine))|\.(list|listClass|detail|members|get|mine|overview|meeting|active|summary|codes|dosen|dosenKelas|storage|suggest|open|progress|ping)$/;
+const READ_ONLY_ACTIONS = /^(app\.config|auth\.me|notif\.(list|read)|file\.get|att\.(qr|scan|recap)|report\.|dash\.|exam\.(state|answer|event|next)|live\.(state|active|list|report)|award\.(defaults|candidates|get|list|mine))|\.(list|listClass|detail|members|get|mine|overview|meeting|active|summary|codes|dosen|dosenKelas|storage|suggest|open|progress|ping)$/;
 
 const SWR = {
   mem: {}, owner: null,
@@ -175,11 +175,70 @@ async function swr(action, payload, render, opts = {}) {
   } finally { setSync(-1); }
 }
 
-/** Isi cache di latar belakang agar halaman berikutnya langsung tampil. */
+/** Boleh mengambil data di latar belakang? (tab aktif, online, bukan mode hemat data) */
+function canPrefetch() {
+  return !!AppState.token && !document.hidden && navigator.onLine !== false && !(navigator.connection && navigator.connection.saveData);
+}
+/**
+ * Isi cache di latar belakang agar halaman berikutnya langsung tampil (0 ms).
+ * Bertanda _pf → prioritas rendah di server & klien, dan tidak dihitung sebagai aktivitas dosen.
+ * Kunci cache memakai payload BERSIH (tanpa _pf) agar sama dengan yang dipakai halaman.
+ */
 function prefetch(action, payload) {
   const k = SWR.key(action, payload);
-  if (SWR.get(k)) return;
-  api(action, payload).then(v => SWR.set(k, v)).catch(() => { });
+  if (SWR.get(k) || !canPrefetch()) return;
+  api(action, Object.assign({}, payload || {}, { _pf: true })).then(v => SWR.set(k, v)).catch(() => { });
+}
+/** Data yang hampir pasti dibuka berikutnya, per halaman. Payload HARUS sama dengan yang dipakai halamannya (= kunci cache). */
+function prefetchPlan(page, params) {
+  const mhs = AppState.user && AppState.user.role === 'mahasiswa';
+  if (page === 'dashboard') return mhs ? [['class.list', {}], ['assignment.mine', {}], ['grade.mine', {}]] : [['class.list', {}]];
+  if (page === 'kelas') return [['class.list', {}]];
+  if (page === 'tugas-saya') return [['assignment.mine', {}]];
+  if (page === 'nilai-saya') return [['grade.mine', {}]];
+  if (page === 'kelas-detail' && params && params.class_id) return [['class.detail', { class_id: params.class_id, with_timeline: true }]];
+  return [];
+}
+/** Setelah halaman kelas tampil: siapkan data tab-tab di latar belakang agar pindah tab tidak menunggu server. */
+function prefetchClassTabs(d) {
+  if (!d || !d.cls) return;
+  const id = d.cls.class_id, a = d.access || {}, p = { class_id: id };
+  const list = [['assignment.listClass', p], ['ann.list', p], ['group.list', p]];
+  if (a.isOwner || a.isAssistant) { list.push(['class.members', p]); if (a.isOwner || (a.perms || []).indexOf('absensi') > -1) list.push(['att.overview', p]); }
+  else { list.push(['att.mine', p], ['grade.mine', p]); }
+  list.forEach(x => prefetch(x[0], x[1]));
+}
+/** Saat senggang setelah beranda tampil: daftar kelas, tugas, dan detail beberapa kelas teratas. */
+function idlePrefetch() {
+  const run = () => {
+    prefetchPlan('dashboard').forEach(x => prefetch(x[0], x[1]));
+    const cl = SWR.get(SWR.key('class.list', {}));
+    if (cl && Array.isArray(cl.v)) cl.v.filter(c => c.status === 'aktif').slice(0, 4).forEach(c => prefetchClass(c.class_id));
+  };
+  (window.requestIdleCallback || (f => setTimeout(f, 500)))(run, { timeout: 2500 });
+}
+/** Niat membuka (sentuh/hover/fokus pada tautan navigasi) → ambil datanya sebelum diklik. */
+function installIntentPrefetch() {
+  const seen = {};
+  const handler = e => {
+    const el = e.target && e.target.closest ? e.target.closest('[onclick*="navigateTo("]') : null;
+    if (!el) return;
+    const m = /navigateTo\('([\w-]+)'\s*(?:,\s*(\{[^}]*\}))?/.exec(el.getAttribute('onclick') || '');
+    if (!m) return;
+    let params = {};
+    if (m[2]) { try { params = JSON.parse(m[2].replace(/'/g, '"').replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":')); } catch (err) { return; } }
+    const key = m[1] + JSON.stringify(params); if (seen[key] && Date.now() - seen[key] < 4000) return; seen[key] = Date.now();
+    prefetchPlan(m[1], params).forEach(x => prefetch(x[0], x[1]));
+  };
+  ['pointerdown', 'touchstart', 'mouseover', 'focusin'].forEach(ev => document.addEventListener(ev, handler, { passive: true, capture: true }));
+}
+/** Simpan paket data awal dari respons login ke cache → beranda langsung terisi tanpa menunggu server lagi. */
+function seedBoot(boot) {
+  if (!boot) return;
+  Object.keys(boot).forEach(a => {
+    if (a === 'notif.list') { AppState.notif = boot[a]; updateNotifBadge(); }
+    else SWR.set(SWR.key(a, {}), boot[a]);
+  });
 }
 
 const _scripts = {};
@@ -316,7 +375,7 @@ function skeleton(kind = 'page') {
     <div class="col-lg-4"><div class="skeleton" style="height:300px;border-radius:22px"></div></div></div>`;
 }
 function loadingBlock(text = 'Memuat data…') {
-  return `<div class="text-center py-5 text-secondary-ss"><div class="spinner-ring mx-auto mb-3"></div>${esc(text)}</div>`;
+  return `<div class="d-grid gap-2 py-2" role="status" aria-live="polite"><span class="visually-hidden">${esc(text)}</span>${'<div class="skeleton" style="height:64px"></div>'.repeat(3)}</div>`;
 }
 function errorBlock(e, retryFn) {
   return `<div class="empty-state">${emptyArt('warn')}<h3>Data gagal dimuat</h3><p>${esc(e && e.message ? e.message : e)}</p>
@@ -711,8 +770,11 @@ function togglePw(id, btn) {
   btn.innerHTML = `<i class="bi ${show ? 'bi-eye-slash' : 'bi-eye'}"></i>`;
 }
 
-function renderRegister(params, c) {
+async function renderRegister(params, c) {
   document.body.classList.add('logged-out');
+  if (!(AppState.config.prodi || []).length && window.__cfgReady) {        // daftar prodi belum sampai (pembukaan pertama)
+    const seq = AppState.navSeq; c.innerHTML = skeleton('list'); await window.__cfgReady; if (seq !== AppState.navSeq) return;
+  }
   const peran = params.peran === 'dosen' ? 'dosen' : 'mahasiswa';
   const prodiOpts = (AppState.config.prodi || []).map(p => `<option>${esc(p.nama_prodi)}</option>`).join('');
   c.innerHTML = authLayout(`
@@ -828,10 +890,11 @@ function onLoggedIn(res) {
   AppState.token = res.token; AppState.user = res.user;
   LS.set('token', res.token); LS.set('user', JSON.stringify(res.user));
   SWR.init(res.user.user_id);
+  seedBoot(res.boot);                                   // beranda terisi dari paket data login: tanpa bolak-balik tambahan
   document.body.classList.remove('logged-out');
   renderNavigation();
   navigateTo('dashboard', {}, { reset: true });
-  refreshNotif();
+  if (!res.boot) refreshNotif();
 }
 
 async function handleLogout() {
@@ -935,7 +998,7 @@ function announcementsHtml(list) {
 
 async function renderDashDosen(c) {
   await swr('dash.dosen', {}, d => drawDashDosen(c, d), { empty: () => { c.innerHTML = skeleton(); } });
-  prefetch('class.list', {});
+  idlePrefetch();
 }
 
 function drawDashDosen(c, d) {
@@ -986,8 +1049,7 @@ function drawDashDosen(c, d) {
 
 async function renderDashMahasiswa(c) {
   await swr('dash.mahasiswa', {}, d => drawDashMahasiswa(c, d), { empty: () => { c.innerHTML = skeleton(); } });
-  prefetch('class.list', {});
-  prefetch('assignment.mine', {});
+  idlePrefetch();
 }
 
 function drawDashMahasiswa(c, d) {
@@ -1161,7 +1223,7 @@ async function renderClassDetail(params, c) {
     // Timeline ikut terkirim dalam satu panggilan → tab pertama langsung tampil
     if (d.timeline) SWR.set(SWR.key('meeting.list', { class_id: id }), d.timeline);
     drawClassHead(d, params);
-    if (!started) { started = true; loadClassTab(AppState.params.tab); }
+    if (!started) { started = true; loadClassTab(AppState.params.tab); setTimeout(() => { if (AppState.page === 'kelas-detail' && AppState.params.class_id === id) prefetchClassTabs(d); }, 350); }
   }, { empty: () => { $('#classHead').innerHTML = skeleton('list'); } });
 }
 
@@ -2856,19 +2918,21 @@ async function setAttNote(meetingId, userId, inp) {
   try { await api('att.setStatus', { meeting_id: meetingId, user_id: userId, status: sel.value, catatan: inp.value.trim() }); toast('Keterangan disimpan', '', 'success'); AppState.attRecap = null; }
   catch (e) { toastErr(e); }
 }
-async function setAttStatus(meetingId, userId, sel) {
+/** Optimistis: pilihan langsung berlaku di layar; server menyusul. Bila gagal, pilihan dikembalikan. */
+function setAttStatus(meetingId, userId, sel) {
   if (!sel.value) return;
-  sel.disabled = true;
-  try {
-    const note = sel.closest('td').querySelector('input');
-    await api('att.setStatus', { meeting_id: meetingId, user_id: userId, status: sel.value, catatan: note ? note.value.trim() : undefined });
-    AppState.attRecap = null;
-    const st = AppState.attMeeting && AppState.attMeeting.students.find(x => x.user_id === userId);
-    toast('Kehadiran dikoreksi', (st ? st.nama + ': ' : '') + ATT_LABEL[sel.value], 'success');
-    if (AppState.page === 'kelas-detail' && AppState.params.tab === 'absensi') { const b = $('#tabBody'); const d = AppState.classCache[AppState.params.class_id]; if (b && d) renderAbsensiTab(b, d); }
-  }
-  catch (e) { toastErr(e); }
-  sel.disabled = false;
+  const prev = sel.dataset.cur !== undefined ? sel.dataset.cur : ((Array.from(sel.options).find(o => o.defaultSelected) || {}).value || '');
+  const note = sel.closest('td').querySelector('input');
+  sel.dataset.cur = sel.value; if (note) note.disabled = false;
+  const st = AppState.attMeeting && AppState.attMeeting.students.find(x => x.user_id === userId);
+  if (st) st.status = sel.value;
+  toast('Kehadiran dikoreksi', (st ? st.nama + ': ' : '') + ATT_LABEL[sel.value], 'success');
+  AppState.attRecap = null;
+  api('att.setStatus', { meeting_id: meetingId, user_id: userId, status: sel.value, catatan: note ? note.value.trim() : undefined })
+    .then(() => {
+      if (AppState.page === 'kelas-detail' && AppState.params.tab === 'absensi') { const b = $('#tabBody'); const d = AppState.classCache[AppState.params.class_id]; if (b && d) renderAbsensiTab(b, d); }
+    })
+    .catch(e => { sel.value = prev; sel.dataset.cur = prev; if (st) st.status = prev; toastErr(e); });
 }
 
 // ════════════════════════════════════════════════════════
@@ -3776,13 +3840,14 @@ async function deleteProdi(id) {
 
 AppState.notif = { items: [], belum_dibaca: 0 };
 
+function updateNotifBadge() {
+  const n = AppState.notif; if (!n || !$('#notifBadge')) return;
+  $('#notifBadge').classList.toggle('d-none', !n.belum_dibaca);
+  $('#notifBtn').setAttribute('aria-label', `Notifikasi${n.belum_dibaca ? ', ' + n.belum_dibaca + ' belum dibaca' : ''}`);
+}
 async function refreshNotif() {
   if (!AppState.token) return;
-  try {
-    AppState.notif = await api('notif.list');
-    $('#notifBadge').classList.toggle('d-none', !AppState.notif.belum_dibaca);
-    $('#notifBtn').setAttribute('aria-label', `Notifikasi${AppState.notif.belum_dibaca ? ', ' + AppState.notif.belum_dibaca + ' belum dibaca' : ''}`);
-  } catch (e) { /* senyap */ }
+  try { AppState.notif = await api('notif.list'); updateNotifBadge(); } catch (e) { /* senyap */ }
 }
 
 function toggleNotif() {
@@ -3806,9 +3871,12 @@ function closeNotif() {
   const b = $('#notifBtn'); if (b) b.setAttribute('aria-expanded', 'false');
   document.removeEventListener('click', outsideNotif);
 }
-async function markNotifRead() {
-  try { await api('notif.read'); AppState.notif.items.forEach(x => x.dibaca = true); AppState.notif.belum_dibaca = 0; $('#notifBadge').classList.add('d-none'); closeNotif(); }
-  catch (e) { toastErr(e); }
+/** Optimistis: lencana & daftar langsung berubah; server menyusul di latar belakang (dikoreksi bila gagal). */
+function markNotifRead() {
+  const n = AppState.notif;
+  if (n) { n.items.forEach(x => x.dibaca = true); n.belum_dibaca = 0; updateNotifBadge(); }
+  closeNotif();
+  api('notif.read').catch(() => refreshNotif());
 }
 function openNotif(i) {
   const x = AppState.notif.items[i]; closeNotif();
@@ -4662,7 +4730,13 @@ function liveDrawStudent() {
   const f = $('#lvAsk'); if (f && !f.dataset.bound) {
     f.dataset.bound = '1';
     f.onsubmit = async e => { e.preventDefault(); const t = $('#lvAskT').value.trim(); if (t.length < 3) return toast('Pertanyaan terlalu pendek', '', 'warning');
-      await withBtn(f.querySelector('button[type=submit]'), async () => { try { await api('live.ask', { live_id: Live.id, teks: t, anonim: $('#lvAnon').checked }); $('#lvAskT').value = ''; toast('Pertanyaan terkirim', '', 'success'); livePoll(); } catch (err) { toastErr(err); } }); };
+      // optimistis: pertanyaan langsung muncul di daftar dan kolom langsung kosong; server menyusul
+      const anon = $('#lvAnon').checked, tmp = 'tmp' + Date.now();
+      Live.d.tanya.push({ event_id: tmp, teks: t, nama: anon ? 'Anonim' : AppState.user.nama_lengkap, milik_saya: true, dukung_n: 0, saya_dukung: false, status: 'baru' });
+      $('#lvAskT').value = ''; liveDraw();
+      try { await api('live.ask', { live_id: Live.id, teks: t, anonim: anon }); toast('Pertanyaan terkirim', '', 'success'); }
+      catch (err) { toastErr(err); $('#lvAskT').value = t; Live.d.tanya = Live.d.tanya.filter(x => x.event_id !== tmp); liveDraw(); return; }
+      livePoll(); };
   }
 }
 function livePollStudentHtml(p) {
@@ -4680,13 +4754,29 @@ function livePollStudentHtml(p) {
     <div class="mb-2">${esc(p.pertanyaan)}</div><div class="small-ss mb-2">Kunci: <b>${kunciTxt}</b> · ${p.benar_n} dari ${p.jawaban_n} menjawab benar</div>
     ${p.tipe === 'pg' ? p.opsi.map((o, j) => `<div class="poll-row"><span class="small-ss">${String.fromCharCode(65 + j)}</span><div class="poll-bar ${j === p.kunci ? 'key' : ''}"><span style="width:${Math.round((p.sebaran[j] || 0) / total * 100)}%"></span></div><span class="small-ss tabular">${p.sebaran[j] || 0}</span></div>`).join('') : ''}</div>`;
 }
-async function liveConfirm(btn) { await withBtn(btn, async () => { try { await api('live.confirm', { live_id: Live.id }); livePoll(); } catch (e) { toastErr(e); } }); }
-async function liveHand(aksi) { try { await api('live.hand', { live_id: Live.id, aksi }); livePoll(); } catch (e) { toastErr(e); } }
-async function liveVote(id) { try { await api('live.vote', { live_id: Live.id, event_id: id }); livePoll(); } catch (e) { toastErr(e); } }
+async function liveConfirm() {
+  if (Live.d && Live.d.saya) { Live.d.saya.perlu_konfirmasi = false; liveDraw(); }                 // optimistis: spanduk langsung hilang
+  try { await api('live.confirm', { live_id: Live.id }); } catch (e) { toastErr(e); }
+  livePoll();
+}
+async function liveHand(aksi) {
+  const d = Live.d;
+  if (d) { d.tangan_naik = aksi === 'naik'; d.antrean = aksi === 'naik' ? Math.max(1, d.antrean || 1) : 0; liveDraw(); }   // optimistis
+  try { await api('live.hand', { live_id: Live.id, aksi }); } catch (e) { toastErr(e); }
+  livePoll();
+}
+async function liveVote(id) {
+  const q = Live.d && Live.d.tanya.find(x => x.event_id === id);
+  if (q) { q.saya_dukung = !q.saya_dukung; q.dukung_n += q.saya_dukung ? 1 : -1; liveDraw(); }                           // optimistis
+  try { await api('live.vote', { live_id: Live.id, event_id: id }); } catch (e) { toastErr(e); }
+  livePoll();
+}
 async function livePollAnswer(pollId, jawaban, el) {
-  if (el && el.tagName === 'BUTTON') el.disabled = true;
-  try { await api('live.pollAnswer', { live_id: Live.id, poll_id: pollId, jawaban }); if (navigator.vibrate) navigator.vibrate(40); await livePoll(); }
-  catch (e) { toastErr(e); if (el && el.tagName === 'BUTTON') el.disabled = false; livePoll(); }
+  const p = Live.d && Live.d.poll;
+  if (p && p.poll_id === pollId) { p.sudah_jawab = true; p.jawaban_saya = jawaban; liveDraw(); }                          // optimistis: "terkirim" seketika
+  if (navigator.vibrate) navigator.vibrate(40);
+  try { await api('live.pollAnswer', { live_id: Live.id, poll_id: pollId, jawaban }); } catch (e) { toastErr(e); }
+  livePoll();                                                                                                              // bila gagal, keadaan sebenarnya dikembalikan
 }
 
 // ── Dosen: ruang kontrol ──
@@ -4748,8 +4838,23 @@ function liveBindPollForm() {
     try { await api('live.pollStart', p); Live.sig['#lvPollBox'] = null; livePoll(); } catch (err) { toastErr(err); }
   };
 }
-async function liveStaffDo(action, p) { try { await api(action, Object.assign({ live_id: Live.id }, p)); livePoll(); } catch (e) { toastErr(e); } }
-async function livePoint(userId, poin) { try { await api('live.points', { live_id: Live.id, user_id: userId, poin, alasan: 'Aktif di kelas' }); toast('+' + poin + ' poin', '', 'success'); livePoll(); } catch (e) { toastErr(e); } }
+async function liveStaffDo(action, p) {
+  const d = Live.d;
+  if (d) {                                                                                  // optimistis: daftar langsung berubah
+    if (action === 'live.handServe') d.tangan = d.tangan.filter(h => h.event_id !== p.event_id);
+    else if (action === 'live.qStatus') { const q = d.tanya.find(x => x.event_id === p.event_id); if (q) q.status = p.status; }
+    liveDraw();
+  }
+  try { await api(action, Object.assign({ live_id: Live.id }, p)); } catch (e) { toastErr(e); }
+  livePoll();
+}
+async function livePoint(userId, poin) {
+  const h = Live.d && Live.d.hadir.find(x => x.user_id === userId);
+  if (h) { h.poin_total = Math.round((h.poin_total + poin) * 10) / 10; liveDraw(); }        // optimistis
+  toast('+' + poin + ' poin', '', 'success');
+  try { await api('live.points', { live_id: Live.id, user_id: userId, poin, alasan: 'Aktif di kelas' }); } catch (e) { toastErr(e); }
+  livePoll();
+}
 function liveCloseDialog() {
   const d = Live.d, cfg = d.cfg;
   openModal({ title: 'Selesaikan sesi kelas?', body: `<p class="mb-2">Mahasiswa tidak bisa lagi mengirim pertanyaan, mengangkat tangan, atau menjawab kuis. Hasil tetap tersimpan di laporan.</p>
@@ -5063,10 +5168,15 @@ async function initApp() {
       navigateTo('dashboard', {}, { reset: true });
       refreshNotif();
     } else {
-      if (window.__boot) window.__boot.step = 'mengambil konfigurasi dari server (app.config)';
-      AppState.config = await api('app.config');
-      LS.set('config', JSON.stringify(AppState.config));
+      // Halaman masuk tampil SEKETIKA (tanpa menunggu server); konfigurasi (nama aplikasi, daftar prodi) menyusul di latar belakang
+      if (window.__boot) window.__boot.step = 'menampilkan halaman masuk';
       navigateTo('login', {}, { reset: true });
+      hideLoadingOverlay();
+      window.__cfgReady = api('app.config').then(cfg => {
+        AppState.config = cfg; LS.set('config', JSON.stringify(cfg));
+        if (AppState.page === 'login' || AppState.page === 'register') document.title = (PAGE_TITLES[AppState.page] ? PAGE_TITLES[AppState.page] + ' — ' : '') + (cfg.appName || 'Ruang Ajar');
+        return cfg;
+      }).catch(() => AppState.config);
     }
   } catch (e) {
     AppState.token = null; LS.del('token');
@@ -5082,8 +5192,25 @@ async function initApp() {
 function json(v) { try { return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 
 let _bgStarted = false;
+/** Pemasangan Service Worker: kerangka aplikasi tersimpan di perangkat → pembukaan berikutnya hampir seketika. */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
+  let had = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) showUpdateBanner(); had = true; });
+  navigator.serviceWorker.register('sw.js').catch(() => { /* tanpa SW aplikasi tetap berjalan normal */ });
+}
+/** Versi baru siap: jangan muat ulang otomatis (bisa sedang ujian); tawarkan saja. */
+function showUpdateBanner() {
+  if (document.getElementById('updBanner')) return;
+  const b = document.createElement('div'); b.id = 'updBanner'; b.className = 'update-banner'; b.setAttribute('role', 'status');
+  b.innerHTML = '<span>Versi baru Ruang Ajar tersedia.</span><button class="btn btn-ink btn-sm" onclick="location.reload()">Muat ulang</button><button class="icon-btn" aria-label="Tutup" onclick="this.parentNode.remove()"><i class="bi bi-x-lg"></i></button>';
+  document.body.appendChild(b);
+}
+
 function startBackgroundTasks() {
   if (_bgStarted) return; _bgStarted = true;
+  installIntentPrefetch();
+  registerServiceWorker();
   // Muat pustaka berat di waktu senggang (bukan saat pembukaan awal)
   preloadLibs(AppState.user && AppState.user.role === 'mahasiswa' ? ['scanner'] : ['chart', 'qrcode']);
   // Perbarui notifikasi berkala (ringan) selama tab aktif
