@@ -1,3 +1,4 @@
+// © 2026 Siska, Fasilkom. Seluruh hak dilindungi. Dilarang menyalin atau memakai ulang tanpa izin tertulis.
 // ============================================
 // KOMUNIKASI KE SERVER (Google Apps Script)
 // ============================================

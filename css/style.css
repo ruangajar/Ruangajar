@@ -1,3 +1,4 @@
+/* © 2026 Siska, Fasilkom. Seluruh hak dilindungi. Dilarang menyalin atau memakai ulang tanpa izin tertulis. */
 /* ============================================================
    RUANG AJAR — style.css
    Arah visual: dashboard edukasi lembut — lavender + arang,
@@ -513,6 +514,7 @@ body.logged-out .app-container { max-width: none; padding: 0; }
 /* ── Footer ── */
 .app-footer { text-align: center; color: var(--text-3); font-size: .8rem; padding: 8px 16px 20px; }
 body.logged-out .app-footer { padding: 14px 16px 18px; background: var(--bg); }
+.app-footer .copy { display: block; margin-top: 2px; font-size: .74rem; opacity: .85; }
 
 /* ── Elemen dashboard yang bisa diklik ── */
 .kpi.clickable { cursor: pointer; transition: box-shadow .2s ease, border-color .2s ease; }
