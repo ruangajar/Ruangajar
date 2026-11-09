@@ -276,14 +276,13 @@ function downloadBase64(base64, mime, name) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-/** Modal hasil laporan PDF: unduh langsung + tautan Google Drive. */
+/** Modal hasil laporan PDF: unduh langsung. Tidak disimpan di Drive dan tidak ada email dikirim; cetak ulang kapan saja. */
 function showReportModal(r) {
   openModal({
     title: 'Laporan siap',
     body: `<div class="text-center py-2"><div class="result-badge" style="background:var(--accent-soft);color:var(--accent-strong)"><i class="bi bi-file-earmark-pdf"></i></div>
-      <b>${esc(r.name)}</b><p class="small-ss text-secondary-ss mt-2 mb-0">Salinan juga tersimpan di folder Laporan kelas pada Google Drive.</p></div>`,
-    footer: `${r.url ? `<a class="btn btn-soft" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer"><i class="bi bi-google"></i> Buka di Drive</a>` : ''}
-      <button class="btn btn-ink" id="dlReport"><i class="bi bi-download"></i> Unduh PDF</button>`
+      <b>${esc(r.name)}</b><p class="small-ss text-secondary-ss mt-2 mb-0">Dibuat langsung dari data terbaru. Anda boleh mencetak ulang kapan saja.</p></div>`,
+    footer: `<button class="btn btn-ink" id="dlReport"><i class="bi bi-download"></i> Unduh PDF</button>`
   });
   $('#dlReport').onclick = () => downloadBase64(r.base64, 'application/pdf', r.name);
 }
