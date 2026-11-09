@@ -203,9 +203,13 @@ function prefetchPlan(page, params) {
 function prefetchClassTabs(d) {
   if (!d || !d.cls) return;
   const id = d.cls.class_id, a = d.access || {}, p = { class_id: id };
-  const list = [['assignment.listClass', p], ['ann.list', p], ['group.list', p]];
-  if (a.isOwner || a.isAssistant) { list.push(['class.members', p]); if (a.isOwner || (a.perms || []).indexOf('absensi') > -1) list.push(['att.overview', p]); }
-  else { list.push(['att.mine', p], ['grade.mine', p]); }
+  const perms = a.perms || [], list = [['assignment.listClass', p], ['ann.list', p], ['group.list', p], ['live.list', p], ['live.active', {}], ['award.list', p]];
+  if (a.isOwner || a.isAssistant) {
+    list.push(['class.members', p]);
+    if (a.isOwner || perms.indexOf('absensi') > -1) list.push(['att.overview', p], ['meeting.list', p]);
+    if (a.isOwner || perms.indexOf('nilai') > -1) list.push(['grade.summary', p]);
+    if (a.isOwner || a.isPj) list.push(['lecturer.list', p]);
+  } else { list.push(['att.mine', p], ['grade.mine', p]); }
   list.forEach(x => prefetch(x[0], x[1]));
 }
 /** Saat senggang setelah beranda tampil: daftar kelas, tugas, dan detail beberapa kelas teratas. */
@@ -4580,9 +4584,27 @@ function livePart(sel, key, html) {
 
 // ── Tab "Sesi kelas" di detail kelas ──
 async function renderSesiTab(body, d) {
+  const staff = d.access.perms.includes('absensi'), cid = d.cls.class_id, ro = d.access.archived, needM = staff && !ro;
+  const kL = SWR.key('live.list', { class_id: cid }), kA = SWR.key('live.active', {}), kM = SWR.key('meeting.list', { class_id: cid });
+  let last = '';
+  const draw = () => {                                              // tampil begitu data ada di cache; diperbarui bila data server berbeda
+    const L = SWR.get(kL), A = SWR.get(kA), M = needM ? SWR.get(kM) : { v: [] };
+    if (!L || !A || !M) return;
+    const sig = JSON.stringify([L.v, A.v, M.v]); if (sig === last) return;
+    if (last && AppState.formDirty && body.querySelector('#lvStart')) return;       // jangan menimpa isian formulir yang sedang diubah
+    last = sig; if (needM) AppState.meetings = M.v;
+    drawSesiTab(body, d, L.v, A.v, M.v);
+  };
+  await Promise.all([
+    swr('live.list', { class_id: cid }, draw, { scope: 'tab', empty: () => { body.innerHTML = skeleton('list'); } }),
+    swr('live.active', {}, draw, { scope: 'tab' }),
+    needM ? swr('meeting.list', { class_id: cid }, draw, { scope: 'tab' }) : Promise.resolve()
+  ]);
+  draw();
+}
+
+function drawSesiTab(body, d, list, active, meetings) {
   const staff = d.access.perms.includes('absensi'), cid = d.cls.class_id, ro = d.access.archived;
-  body.innerHTML = loadingBlock();
-  const [list, active, meetings] = await Promise.all([api('live.list', { class_id: cid }), api('live.active'), staff && !ro ? ensureMeetings(cid) : Promise.resolve([])]);
   const act = active.find(x => x.class_id === cid);
   const today = new Date().toISOString().slice(0, 10), defM = (meetings.find(m => m.tanggal >= today) || meetings[0] || {}).meeting_id;
   const w = d.weights || [];
@@ -4625,6 +4647,7 @@ async function renderSesiTab(body, d) {
       : emptyState('Belum ada sesi kelas', staff ? 'Mulai sesi kelas saat kuliah daring/luring berlangsung. Mahasiswa membukanya sambil mengikuti Meet.' : 'Riwayat partisipasimu muncul setelah dosen mengadakan sesi kelas.')}`;
   window.__liveList = list;
   const f = $('#lvStart'); if (!f) return;
+  f.addEventListener('input', () => { AppState.formDirty = true; });
   $('#lvNilai').onchange = e => $('#lvKomp').classList.toggle('d-none', !e.target.checked);
   f.onsubmit = async e => {
     e.preventDefault();
@@ -4920,9 +4943,11 @@ async function renderSertifikatSaya(params, c) {
 
 // ── Tab "Penghargaan" (dosen) / "Sertifikat" (mahasiswa) di detail kelas ──
 async function renderPenghargaanTab(body, d) {
+  await swr('award.list', { class_id: d.cls.class_id }, list => drawPenghargaan(body, d, list), { scope: 'tab', empty: () => { body.innerHTML = skeleton('list'); } });
+}
+
+function drawPenghargaan(body, d, list) {
   const owner = d.access.isOwner, cid = d.cls.class_id;
-  body.innerHTML = loadingBlock();
-  const list = await api('award.list', { class_id: cid });
   if (!owner) { body.innerHTML = list.length ? `<div class="row g-3">${list.map(x => `<div class="col-lg-6">${certCardHtml(x)}</div>`).join('')}</div>` : emptyState('Belum ada sertifikat', 'Sertifikat penghargaan dari dosen untuk kelas ini akan muncul di sini.'); return; }
   window.__awList = list;
   body.innerHTML = `<div class="d-flex flex-wrap gap-2 align-items-center mb-3"><p class="small-ss text-secondary-ss mb-0">Hitung mahasiswa atau kelompok berprestasi, pilih penerima, lalu terbitkan sertifikat ke akun mereka.</p>

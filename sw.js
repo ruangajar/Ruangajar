@@ -10,7 +10,7 @@
 //     2) naikkan angka ?v= pada index.html (harus sama dengan VERSION).
 //    Pengguna akan melihat tombol "Muat ulang" saat versi baru siap.
 // ============================================================
-const VERSION = '2.1.2';
+const VERSION = '2.1.3';
 const SHELL = 'ra-shell-' + VERSION;
 const RUNTIME = 'ra-cdn-v1';
 const SHELL_FILES = ['./', 'index.html', 'css/style.css?v=' + VERSION, 'js/config.js?v=' + VERSION, 'js/api.js?v=' + VERSION, 'js/app.js?v=' + VERSION, 'manifest.webmanifest', 'icons/icon-192.png'];

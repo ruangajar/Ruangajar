@@ -20,7 +20,7 @@ const BATCHABLE = /^(app\.config|auth\.me|notif\.list|dash\.(dosen|mahasiswa)|cl
 
 let _batchOK = true;               // false bila server lama belum mengenal 'batch' → kirim satu-satu
 let _qHigh = [], _qLow = [], _tHigh = null, _tLow = null, _active = 0;
-const _inflight = new Map();
+const _inflight = new Map(), _inflightItem = new Map();
 
 function _ctype() { return { 'Content-Type': 'text/plain;charset=utf-8' }; }
 
@@ -80,24 +80,46 @@ function _flushLow() {
  * payload._pf = true menandai pengambilan latar belakang (prioritas rendah).
  * @returns {Promise<{success:boolean,data:any,message:string,code?:string}>}
  */
+/** Kunci deduplikasi: penanda _pf diabaikan (prefetch & permintaan biasa untuk data yang sama = satu permintaan), kecuali class.detail (punya efek "dosen membuka kelas"). */
+function _dedupeKey(action, token, payload) {
+  if (!BATCHABLE.test(action)) return null;
+  let p = payload;
+  if (action !== 'class.detail' && payload._pf) { p = Object.assign({}, payload); delete p._pf; }
+  return action + '|' + (token || '') + '|' + JSON.stringify(p);
+}
+/** Pengguna kini menunggu data yang sedang diambil diam-diam → naikkan prioritasnya agar tidak ikut menunggu antrean latar belakang. */
+function _promote(key) {
+  const it = _inflightItem.get(key); if (!it) return;
+  const i = _qLow.indexOf(it);
+  if (i > -1) { _qLow.splice(i, 1); _qHigh.push(it); if (!_tHigh) _tHigh = setTimeout(_flushHigh, BATCH_WINDOW_MS); }
+}
+
+/**
+ * Panggil satu aksi di server. Pembacaan dikumpulkan ±12 ms lalu dikirim sekaligus.
+ * payload._pf = true menandai pengambilan latar belakang (prioritas rendah).
+ * @returns {Promise<{success:boolean,data:any,message:string,code?:string}>}
+ */
 function callServer(action, token, payload, timeoutMs) {
   payload = payload || {};
-  const batchable = _batchOK && BATCHABLE.test(action);
-  const key = BATCHABLE.test(action) ? action + '|' + (token || '') + '|' + JSON.stringify(payload) : null;
-  if (key && _inflight.has(key)) return _inflight.get(key);
-  const low = !!payload._pf;
+  const batchable = _batchOK && BATCHABLE.test(action), low = !!payload._pf, key = _dedupeKey(action, token, payload);
+  if (key && _inflight.has(key)) { if (!low) _promote(key); return _inflight.get(key); }
+  let item = null;
   const p = new Promise((resolve, reject) => {
     const it = { action: action, token: token || '', payload: payload, resolve: resolve, reject: reject, timeoutMs: timeoutMs };
     if (!batchable || JSON.stringify(payload).length > MAX_BATCH_BYTES) {       // aksi tulis/besar → langsung, sendiri
       _post(JSON.stringify({ action: action, token: token || '', payload: payload }), timeoutMs).then(resolve, reject); return;
     }
+    item = it;
     if (low) { _qLow.push(it); if (!_tLow) _tLow = setTimeout(_flushLow, LOW_DELAY_MS); }
     else { _qHigh.push(it); if (!_tHigh) _tHigh = setTimeout(_flushHigh, BATCH_WINDOW_MS); }
   });
-  if (key) { _inflight.set(key, p); const done = () => { if (_inflight.get(key) === p) _inflight.delete(key); }; p.then(done, done); }
+  if (key) {
+    _inflight.set(key, p); if (item) _inflightItem.set(key, item);
+    const done = () => { if (_inflight.get(key) === p) { _inflight.delete(key); _inflightItem.delete(key); } };
+    p.then(done, done);
+  }
   return p;
 }
-
 /** Bangunkan server (hindari cold start). Tanpa menunggu hasil. */
 function warmServer() {
   try { if (typeof GAS_URL === 'string' && GAS_URL.indexOf('script.google.com') > -1) fetch(GAS_URL + '?action=ping', { mode: 'no-cors', cache: 'no-store', keepalive: true }).catch(() => { }); } catch (e) { /* abaikan */ }

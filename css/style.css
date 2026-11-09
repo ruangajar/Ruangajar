@@ -20,7 +20,7 @@
   --text: #1E1E24;
   --text-2: #6E6E7A;
   --text-3: #9A9AA6;
-  --border: #ECECF1;
+  --border: #ECECF1; --skel: #E6E6EE; --skel-hi: rgba(255,255,255,.65);
   --border-strong: #DCDCE4;
   --ok: #1F9D66;   --ok-soft: #E3F5EC;
   --warn: #B7791F; --warn-soft: #FDF3DD;
@@ -53,7 +53,7 @@
   --text: #EDEDF2;
   --text-2: #A3A3AF;
   --text-3: #7C7C88;
-  --border: #2C2C35;
+  --border: #2C2C35; --skel: #2B2B35; --skel-hi: rgba(255,255,255,.07);
   --border-strong: #3A3A45;
   --ok: #4ACB8E;   --ok-soft: #173327;
   --warn: #E8B44F; --warn-soft: #362B14;
@@ -419,11 +419,11 @@ body.logged-out .app-container { max-width: none; padding: 0; }
 @keyframes toastIn { from { transform: translateY(8px); opacity: 0; } }
 
 /* ── Skeleton & empty state ── */
-.skeleton { position: relative; overflow: hidden; background: var(--surface-2); border-radius: 12px; }
+.skeleton { position: relative; overflow: hidden; background: var(--skel, #E6E6EE); border-radius: 12px; }      /* cukup gelap dari latar agar jelas terlihat (dulu nyaris sama dengan latar → layar terasa kosong) */
 .skeleton::after {
   content: ''; position: absolute; inset: 0; transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 70%, transparent), transparent);
-  animation: shimmer 1.3s infinite;
+  background: linear-gradient(90deg, transparent, var(--skel-hi, rgba(255,255,255,.65)), transparent);
+  animation: shimmer 1.2s infinite;
 }
 @keyframes shimmer { to { transform: translateX(100%); } }
 .empty-state { text-align: center; padding: 36px 16px; color: var(--text-2); }
